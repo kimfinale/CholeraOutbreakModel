@@ -2,10 +2,14 @@
 # Generator token: 10BE3573-1514-4C36-9D1C-5A225CD40393
 
 reulermultinom <- function(size, rate, dt) {
-    .Call('_CholeraOutbreakModel_reulermultinom', PACKAGE = 'CholeraOutbreakModel', size, rate, dt)
+    .Call(`_CholeraOutbreakModel_reulermultinom`, size, rate, dt)
 }
 
-seiarw_euler <- function(params) {
-    .Call('_CholeraOutbreakModel_seiarw_euler', PACKAGE = 'CholeraOutbreakModel', params)
+seiarw <- function(params) {
+    .Call(`_CholeraOutbreakModel_seiarw`, params)
+}
+
+seiarw_2ag <- function(params) {
+    .Call(`_CholeraOutbreakModel_seiarw_2ag`, params)
 }
 

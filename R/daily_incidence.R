@@ -3,15 +3,9 @@ daily_incidence <- function(pars){
   # and initial conditions
   # pars only stores estimated parameters
   params <- PARAMETERS
-  p1 <- round(pars[1]) # integer day makes it clear to model
-  # +1 because the output comes as the daily difference
-  params$ndays <- p1 + params$obslength # number of days for output
-  params$R0 <- pars[2] # number of days for output
-  # previous modeling analyses revealed that almost 0 day (May 13), the intervention started
-  # therefore, arbitrary negative number, -10, were added to explore
-  # the possibility of intervention started earlier
-  params$day_intervention <- p1 + pars[3]
-  params$R0_2 <- pars[4] # number of days for o
+  for (n in names(pars)) {
+    params[[n]] <- pars[[n]]
+  }
 
   out <- params$model(params)
   day_filter <- seq(1, by=round(1/params$tau), length.out=(params$ndays+1))

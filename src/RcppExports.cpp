@@ -23,21 +23,33 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
-// seiarw_euler
-List seiarw_euler(List params);
-RcppExport SEXP _CholeraOutbreakModel_seiarw_euler(SEXP paramsSEXP) {
+// seiarw
+List seiarw(List params);
+RcppExport SEXP _CholeraOutbreakModel_seiarw(SEXP paramsSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< List >::type params(paramsSEXP);
-    rcpp_result_gen = Rcpp::wrap(seiarw_euler(params));
+    rcpp_result_gen = Rcpp::wrap(seiarw(params));
+    return rcpp_result_gen;
+END_RCPP
+}
+// seiarw_2ag
+List seiarw_2ag(List params);
+RcppExport SEXP _CholeraOutbreakModel_seiarw_2ag(SEXP paramsSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< List >::type params(paramsSEXP);
+    rcpp_result_gen = Rcpp::wrap(seiarw_2ag(params));
     return rcpp_result_gen;
 END_RCPP
 }
 
 static const R_CallMethodDef CallEntries[] = {
     {"_CholeraOutbreakModel_reulermultinom", (DL_FUNC) &_CholeraOutbreakModel_reulermultinom, 3},
-    {"_CholeraOutbreakModel_seiarw_euler", (DL_FUNC) &_CholeraOutbreakModel_seiarw_euler, 1},
+    {"_CholeraOutbreakModel_seiarw", (DL_FUNC) &_CholeraOutbreakModel_seiarw, 1},
+    {"_CholeraOutbreakModel_seiarw_2ag", (DL_FUNC) &_CholeraOutbreakModel_seiarw_2ag, 1},
     {NULL, NULL, 0}
 };
 
