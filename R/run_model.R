@@ -1,24 +1,20 @@
-run_model <- function(pars, var) {
-  max_intro <- max(round(pars[,1])) # value for the earliest introduction
-
-  reslist <- vector('list', length(var))
-  names(reslist) <- var
-
-  # PARAMETERS$measure_var <- var
-
-  nobs <- max_intro + PARAMETERS$obslength
-  np <- nrow(pars)
-
-  for(j in 1:length(var)) {
-    reslist[[j]] <- data.frame(matrix(NA, nrow=nobs, ncol=np))
+run_model <- function(pars, output_time=1, output_var=NULL){
+  # use the global variable PARAMETERS, which holds all the parameters
+  # and initial conditions
+  # pars only stores estimated parameters
+  params <- PARAMETERS
+  for (n in names(pars)) {# update the parameters
+    params[[n]] <- pars[[n]]
   }
 
-  for (i in 1:np) {
-    res <- daily_incidence(pars = pars[i,])
-    for(j in 1:length(var)) {
-      reslist[[j]][(nobs-nrow(res)+1):nobs, i] <- res[, var[j]]
-    }
-  }
+  out <- params$model(params)
+  time_filter <- seq(1, by=round(output_time/params$tau),
+                     length.out=(params$ndays+1))
 
-  return(reslist)
+  if(is.null(output_var)) {
+    output_var <- params$measure_var
+  }
+  out <- out[time_filter, output_var, drop=FALSE]
+
+  return(out)
 }

@@ -14,11 +14,22 @@ initialize_params <- function(I0=10, pop=1e5,
   params$epsilon <- 1/2 # mean latent period = 1/epsilon
   params$gamma <- 1/4 # mean infectious period = 1/gamma
   params$kappa <- 575 # excretion rate cells per person per day
-  params$sigma <- 1/(4*365) # 1/sigma = mean duration of natural immunity
+
   params$xi <- 1/21 # mean decay rate of Vibrio cholerae
   params$K <- 10000 # half-infective bacteria dose (10,000 cells/ml)
   params$R0 <- 3.0
   params$R0W <- 0.8 #
+  params$sigma <- 1/(4*365) # 1/sigma = mean duration of natural immunity
+  # 1/sigma_v1 = mean duration of OCV-induced immunity (1st dose)
+  params$sigma_v1 <- 1/(2*365)
+  # 1/sigma_v2 = mean duration of OCV-induced immunity (2nd dose)
+  params$sigma_v2 <- 1/(4*365)
+  params$vacc_cov <- 0.6
+  params$vacc_dur <- 14
+  params$vacc_eff_u5 <- 0.6
+  params$vacc_eff_v1 <- 0.5
+  params$vacc_eff_v2 <- 0.7
+
   params$day_intervention <- 100.0
 
   params$fA <- 0.9 # fraction of asymptomatic state

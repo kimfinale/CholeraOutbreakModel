@@ -2,23 +2,6 @@
 using namespace Rcpp;
 
 // [[Rcpp::export]]
-NumericVector reulermultinom(double size, NumericVector rate, double dt) {
-  int ncol = rate.size();
-  NumericVector trans(ncol); // transition events
-  double p = sum(rate); //total event rate
-  double tmpp = p;
-  double tmpsize = R::rbinom(size, (1 - exp(-tmpp*dt))); // total number of events
-  for (int k = 0; k < (ncol-1); k++) {
-    double tr = R::rbinom(tmpsize, rate(k)/p);
-    trans(k) = tr;
-    tmpsize -= tr;
-    tmpp -= rate(k);
-  }
-  trans(ncol-1) = tmpsize;
-  return(trans);
-}
-
-// [[Rcpp::export]]
 List seiarw(List params) {
   double tau = params["tau"]; // time step size
   double ndays = params["ndays"]; // number of days for output
@@ -30,9 +13,13 @@ List seiarw(List params) {
   NumericVector A(nsteps); //asymptomatic
   NumericVector R(nsteps); // recovered
   NumericVector W(nsteps); // recovered
-
   NumericVector CE(nsteps); // cumulative infection
   NumericVector CI(nsteps); // cumulative symptomatic
+  // vaccination assumes that vaccination does not change the status of E, I, R
+  NumericVector V1(nsteps); // susceptibles who received the first dose of OCV
+  NumericVector V2(nsteps); // susceptibles who received the second dose of OCV
+  NumericVector CV1(nsteps); // cumulative number of the first dose of OCV
+  NumericVector CV2(nsteps); // cumulative number of the second dose of OCV
 
   NumericVector time(nsteps);// fill time w/zeros
 
@@ -41,11 +28,15 @@ List seiarw(List params) {
   S(0) = init["S"];
   E(0) = init["E"];
   I(0) = init["I"];
-  A(0) = init["A"]; //asymptomatic
-  R(0) = init["R"]; // recovered
+  A(0) = init["A"];
+  R(0) = init["R"];
   W(0) = init["W"];
-  CE(0) = init["CE"]; // cumulative infection
-  CI(0) = init["CI"]; // cumulative symptomatic
+  CE(0) = init["CE"];
+  CI(0) = init["CI"];
+  V1(0) = 0;
+  V2(0) = 0;
+  CV1(0) = 0;
+  CV2(0) = 0;
 
   double epsilon = params["epsilon"]; // 1 / latent period
   double kappa = params["kappa"]; // excretion rate
@@ -53,6 +44,8 @@ List seiarw(List params) {
   double K = params["K"]; // half-infective dose (eg, 10,000 doses/ml)
   double gamma = params["gamma"]; // 1 / recovery period
   double sigma = params["sigma"]; // 1 / duration of natural immunity
+  double sigma_v1 = params["sigma_v1"]; // 1 / duration of OCV-induced immunity (1st dose)
+  double sigma_v2 = params["sigma_v2"]; // 1 / duration of OCV-induced immunity (2nd dose)
   // 1 / rate from pre-symptomatic (P) state to infectious (I) states
   double fA = params["fA"]; // fraction asymptomatic
   double bA = params["bA"]; // relative infectivity of A to I
@@ -63,13 +56,22 @@ List seiarw(List params) {
   double case_track_window = params["case_track_window"];
   // case threshold over which intervention will be implemented
   double case_threshold = params["case_threshold"];
+  double vacc_cov = params["vacc_cov"]; // vaccine coverage
+  double vacc_dur = params["vacc_dur"]; // vaccine duration
+  double VE_v1 = params["vacc_eff_v1"]; // vaccine efficacy (1st dose) for 5+ yo
+  double VE_v2 = params["vacc_eff_v2"]; // vaccine efficacy (2nd dose) for 5+ yo
+  // double vacc_eff_u5 = params["vacc_eff_u5"]; // vaccine efficacy for 5+ yo
+  // daily vaccination rate during a vacc_dur is given by the following relationship
+  //  -log(1-vacc_cov)/vacc_dur, where vacc_cov is between 0 and 1
   // double day_intervention = params["day_intervention"];
 
   // double beta = R0 / (bA*fA/gamma + (1-fA)/gamma);
   double beta = R0 * gamma;
   // double betaW = beta;
-  double pop_init = S[0]+E[0]+I[0]+A[0]+R[0];
+  double pop_init = S[0] + E[0] + I[0] + A[0] + R[0] + V1[0] + V2[0];
   double betaW = R0W * gamma * (xi / kappa) * K / pop_init; // needs
+  double vacc_rate = 0;
+  // double vacc_rate = -log(1-vacc_cov)/vacc_dur;
 
   // Rprintf("the value of nsteps : %.1d \n", nsteps);
   // Rprintf("the value of R0 : %.3f \n", R0);
@@ -84,14 +86,36 @@ List seiarw(List params) {
   // Calculate the number of events for each step, update state vectors
   double case_tracked = 0;
   bool intervention_in_place = false;
+  // arbitrary small number (at least abs value is arger than the simulation days)
+  double campaign_start = -1e5;
+
   for (int istep = 0; istep < nsteps - 1; istep++) {
+    // --------------- Intervention ----------------------------
     if (case_tracked >= case_threshold) {
       beta = (1 - alpha) * R0 / (bA*fA/gamma + (1-fA)/gamma);
       intervention_in_place = true;
+      if(campaign_start < 0){ // initial values assigned to be zero
+        campaign_start = istep*tau;
+      }
     }
     if((istep % (int) ceil(case_track_window/tau)) == 0 && !intervention_in_place) {
       case_tracked = 0;
     }
+
+    // vaccination related
+    double time_since_campaign = (istep+1)*tau - campaign_start;
+    if (0 < time_since_campaign && time_since_campaign <= vacc_dur) {
+      vacc_rate = -log(1-vacc_cov)/vacc_dur;
+    }
+    else {
+      vacc_rate = 0;
+    }
+    // -----------------------------------------------------------------
+    // test vacc_rate
+    // if (istep % 5 == 0) {
+    //   Rprintf("step: %d, time: %.1f, vacc_rate: %.3f \n",
+    //           istep, (istep+1)*tau, vacc_rate);
+    // }
     double iS = S[istep];
     double iE = E[istep];
     double iI = I[istep];
@@ -102,12 +126,23 @@ List seiarw(List params) {
     double iCE = CE[istep];
     double iCI = CI[istep];
 
-    // State Equations
-    double N = iS + iE + iI + iA + iR;
-    double foi = beta * (bA * iA + iI) / N + betaW * iW/(K+iW);
-    // Rprintf("the value of N : %.1f \n", N);
+    double iV1 = V1[istep];
+    double iV2 = V2[istep];
+    double iCV1 = CV1[istep];
+    double iCV2 = CV2[istep];
 
-    double new_infection = iS * foi * tau;
+    // State Equations
+    double N = iS + iE + iI + iA + iR + iV1 + iV2;
+    double foi = beta * (bA * iA + iI) / N + betaW * iW / (K + iW);
+    // Rprintf("the value of N : %.1f \n", N);
+    // double new_infection = (iS + (1-VE_v1)*iV1 + (1-VE_v2)*iV2) * foi * tau;
+    double StoE = iS * foi * tau;
+    double RtoS = iR * sigma * tau;
+    double V2toS = iV2 * sigma_v2 * tau; // immunity wane (2nd dose)
+    double V1toS = iV1 * sigma_v1 * tau;
+    // new vacc doses NEED TO BE ADJUSTED
+    double new_vacc_first_dose = (iS+iE+iA+iR) * vacc_rate * tau;
+    double new_vacc_second_dose = (iS+iE+iA+iR+iV1) * vacc_rate * tau;
     // Rprintf("the value of new infection : %f \n", new_infection);
 
     // Rprintf("the value of new_infection : %.1f \n", new_infection);
@@ -123,16 +158,24 @@ List seiarw(List params) {
     double ItoW = iA * kappa * tau;//
     double AtoW = iA * bA * kappa * tau;//
     double fromW = iW * xi * tau;//
+
+    double StoV1 = iS * vacc_rate * tau;//
+    double V1toV2 = iV1 * vacc_rate * tau;//
+    double V1toE = iV1 * (1-VE_v1) * foi * tau;
+    double V2toE = iV2 * (1-VE_v2) * foi * tau;
     // Rprintf("the value of ItoR : %.1f \n", ItoR);
     // Rprintf("the value of AtoR : %.1f \n", AtoR);
 
     // Calculate the change in each state variable
-    double dS = - new_infection;
-    double dE = new_infection - EtoA - EtoI;
+    double dS = - StoE - StoV1 + RtoS + V1toS + V2toS;
+    double dE = StoE + V1toE + V2toE - EtoA - EtoI;
     double dI = EtoI - ItoR;
     double dA = EtoA - AtoR;
-    double dR = ItoR + AtoR;
+    double dR = ItoR + AtoR - RtoS;
     double dW = ItoW + AtoW - fromW;
+    double dV1 = StoV1 - V1toS - V1toV2 - V1toE;
+    double dV2 = V1toV2 - V2toS - V2toE;
+
     // Update next timestep
     S[istep + 1] = iS + dS;
     E[istep + 1] = iE + dE;
@@ -141,14 +184,20 @@ List seiarw(List params) {
     R[istep + 1] = iR + dR;
     W[istep + 1] = iW + dW;
 
-    CE[istep + 1] = iCE + new_infection;// cumulative infection
+    V1[istep + 1] = iV1 + dV1;
+    V2[istep + 1] = iV2 + dV2;
+
+    CE[istep + 1] = iCE + StoE + V1toE + V2toE;// cumulative infection
     CI[istep + 1] = iCI + EtoI;// cumulative symptomatic
     // this will later need to be adjusted to account for the delay of observation
     case_tracked = case_tracked + EtoI;
+
+    CV1[istep + 1] = iCV1 + new_vacc_first_dose;
+    CV2[istep + 1] = iCV2 + new_vacc_second_dose;
     time[istep + 1] = (istep + 1) * tau;// time in fractional years
   }
 // Return results as data.frame
-  DataFrame sim = DataFrame::create(
+  DataFrame result = DataFrame::create(
     Named("time") = time,
     Named("S") = S,
     Named("E") = E,
@@ -156,10 +205,14 @@ List seiarw(List params) {
     Named("A") = A,
     Named("R") = R,
     Named("W") = W,
+    Named("V1") = V1,
+    Named("V2") = V2,
     Named("CE") = CE,
-    Named("CI") = CI);
+    Named("CI") = CI,
+    Named("CV1") = CV1,
+    Named("CV2") = CV2);
 
-  return sim;
+  return result;
 }
 
 
