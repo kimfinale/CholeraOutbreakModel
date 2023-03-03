@@ -24,11 +24,11 @@ initialize_params <- function(I0=10, pop=1e5,
   params$sigma_v1 <- 1/(2*365)
   # 1/sigma_v2 = mean duration of OCV-induced immunity (2nd dose)
   params$sigma_v2 <- 1/(4*365)
-  params$vacc_cov <- 0.6
-  params$vacc_dur <- 14
-  params$vacc_eff_u5 <- 0.6
-  params$vacc_eff_v1 <- 0.5
-  params$vacc_eff_v2 <- 0.7
+  params$vacc_cov <- c(0.6, 0)
+  params$campaign_dur <- 14 # 14 days of vaccination campaign
+  params$delay_until_2nd_campaign <- 30 # 30 days of delay between the 1st and the 2nd campaign
+  params$vacc_eff_v1 <- c(0.3, 0.5)
+  params$vacc_eff_v2 <- c(0.5, 0.7)
 
   params$day_intervention <- 100.0
 
@@ -39,7 +39,7 @@ initialize_params <- function(I0=10, pop=1e5,
   # North Korea data have >80 observations, ignoring some zero incidence
   params$obslength <- 80
 
-  params$alpha <- 0.2; # proportional reduction in R0
+  params$alpha <- 0.0; # proportional reduction in R0
   # time window over which the number of cases is tracked
   params$case_track_window <- 7
   # case threshold over which intervention will be implemented
