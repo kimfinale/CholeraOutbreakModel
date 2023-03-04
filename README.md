@@ -2,12 +2,12 @@ Cholera outbreak model
 ================
 2023-02-27
 
-## R Markdown
+The easiest way to use this he development version of is to use the
+package:
 
 ``` r
-devtools::load_all()
+# install.packages("devtools")
+library(devtools)
+install_github("kimfinale/CholeraOutbreakModel")
+library(CholeraOutbreakModel)
 ```
-
-## Including Plots
-
-You can also embed plots, for example:
