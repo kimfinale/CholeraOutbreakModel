@@ -9,7 +9,7 @@ daily_incidence <- function(pars, variable=NULL){
 
   out <- params$model(params)
   day_filter <- seq(1, by=round(1/params$tau), length.out=(params$ndays+1))
-  if(is.null(variable)) {
+  if (is.null(variable)) {
     variable <- params$measure_var
   }
   out <- out[day_filter, variable, drop=FALSE]
