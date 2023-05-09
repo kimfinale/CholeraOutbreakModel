@@ -1,0 +1,768 @@
+---
+title: "Cholera outbreak model"
+output: github_document
+date: "2023-02-27"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=T, eval=FALSE, warning=F)
+```
+
+## Load the package
+
+```{r cars}
+devtools::load_all()
+```
+
+## Run the model
+```{r}
+devtools::load_all()
+params <- initialize_params()
+out = seiarw_2ag_erlang(params)
+# outbk = simulate_outbreak(params=params)
+outbk = simulate_outbreak()
+plot(outbk$timeseries$ci)
+outbk$outbreak_char
+
+# seiarw requires three following parameters to be a vector of length=1
+# parm <- c(vacc_cov=0.4, vacc_eff_v1=0.9, vacc_eff_v2=0.9)
+# # update params
+# for (nm in names(parm)) params[[nm]] = parm[[nm]]
+# out <- seiarw(params)
+# out2 <- params$model(params)
+# all.equal(out, out2)
+```
+
+### Generate outbreaks based on the 
+```{r}
+# read the source data for the Zheng et al. (2022) paper
+d = data.table::fread("https://raw.githubusercontent.com/kimfinale/cholera_outbreaks_ssa/main/reference_data/outbreak_data.csv")
+names(d)
+# d[1,c("duration","threshold","total_suspected_cases","attack_rate","population","time_to_peak..weeks.")]
+
+# outbk = simulate_outbreak(params=params)
+# cost
+char_obs = d[1,c("duration","threshold","total_suspected_cases","attack_rate",
+                 "population","time_to_peak..weeks.","mean_R0")]
+
+popsize = char_obs[["population"]]
+threshold = char_obs[["threshold"]]
+outbk_dur = char_obs[["duration"]]
+outbk_size = char_obs[["total_suspected_cases"]]
+outbk_time_to_peak = char_obs[["time_to_peak..weeks."]]
+outbk_R0 = char_obs[["mean_R0"]]
+
+cost_func = function(x) {
+  # simulate outbreak
+  params$R0 = outbk_R0
+  outbk = simulate_outbreak(params=params, 
+                            popsize = popsize,
+                            outbreak_threshold = threshold,
+                            prop_eff_pop=x)
+  
+  sqrt((outbk_size - outbk$outbreak_char[["outbreak_size"]])^2 + 
+  (outbk_dur - outbk$outbreak_char[["outbreak_dur"]])^2 +
+  (outbk_time_to_peak - outbk$outbreak_char[["time_to_peak"]])^2)
+}
+
+sapply(c(0.001, 0.00003, 0.01, 0.1, 0.5), cost_func)
+
+# fit = optim(par=0.1, fn=cost_func)
+fit = optimise(cost_func, interval=c(0,1))
+```
+
+### 
+```{r}
+devtools::load_all()
+params <- initialize_params()
+d = data.table::fread("https://raw.githubusercontent.com/kimfinale/cholera_outbreaks_ssa/main/reference_data/outbreak_data.csv")
+# cost_func_pars = function(x, pars) {
+#   # simulate outbreak
+#   params$R0 = pars[["outbk_R0"]]
+#   outbk = simulate_outbreak(params = params,
+#                             saveat = 7,
+#                             stat_window = 7,# weekly statistics!
+#                             popsize = pars[["popsize"]],
+#                             outbreak_threshold = pars[["threshold"]],
+#                             prop_eff_pop=x)
+#   
+#   os = outbk$outbreak_char[["outbreak_size"]]
+#   od = outbk$outbreak_char[["outbreak_dur"]]
+#   ot = outbk$outbreak_char[["time_to_peak"]]
+#   sqrt(((pars[["outbk_size"]]-os)/os)^2 + 
+#   ((pars[["outbk_dur"]] - od)/od)^2 +
+#   ((pars[["outbk_time_to_peak"]] - ot)/ot)^2)
+# }
+
+fits = data.frame(matrix(NA, nrow=nrow(d), ncol=2))
+names(fits) <- c("minimum", "objective")
+for (i in 1:nrow(d)) {
+  cat("i =", i, "\n")
+  char_obs = d[i, c("duration", "threshold", "total_suspected_cases",
+                    "attack_rate", "population", "time_to_peak..weeks.",
+                    "mean_R0")]
+  
+  if (all(!is.na(char_obs[1,]))) {
+    pars = c(
+      popsize = char_obs[["population"]],
+      threshold = char_obs[["threshold"]],
+      outbk_dur = char_obs[["duration"]],
+      outbk_size = char_obs[["total_suspected_cases"]],
+      outbk_time_to_peak = char_obs[["time_to_peak..weeks."]],
+      outbk_R0 = char_obs[["mean_R0"]])
+
+    ft = optimise(cost_func_pars, pars=pars, interval=c(0,1))
+    fits[i,"minimum"] = ft$minimum
+    fits[i,"objective"] = ft$objective
+    print(ft)
+  }
+}
+saveRDS(fits, paste0("outputs/fits_", tstamp(), ".rds"))
+```
+
+
+### Generate outbreaks
+```{r}
+devtools::load_all()
+params <- initialize_params()
+d = data.table::fread("https://raw.githubusercontent.com/kimfinale/cholera_outbreaks_ssa/main/reference_data/outbreak_data.csv")
+# fits = readRDS("outputs/fits_20230329.rds")
+fits = readRDS("outputs/fits_20230330.rds")
+i = 1
+outbks = vector('list', length=nrow(d))
+for (i in 1:nrow(d)) {
+    cat("i =", i, "\n")
+  char_obs = d[i, c("population","threshold","mean_R0")]
+  
+  if (all(!is.na(char_obs[1,]))) {
+    pars = c(popsize = char_obs[["population"]],
+      threshold = char_obs[["threshold"]],
+      outbk_R0 = char_obs[["mean_R0"]])
+    
+    params$R0 = pars[["outbk_R0"]]
+    outbks[[i]] = simulate_outbreak(params=params,
+                              saveat=1,
+                              stat_window=7,
+                              popsize = pars[["popsize"]],
+                              outbreak_threshold = pars[["threshold"]],
+                              prop_eff_pop = fits$minimum[i])
+  }
+}
+saveRDS(outbks, paste0("outputs/fitted_outbreaks_", tstamp(), ".rds")) 
+```
+
+
+## Analysis of fitted outbreaks
+Outbreaks are analyzed to see first what the issues are with the outbreaks that the current strategy did not allow fitting (eg, outbreak size too big given a population size and R0)
+
+Check when you get NA
+
+If we allow 20% difference for the three metrics, the sum would be 1.2. 
+Does the outbreaks with good fits cover the outbreaks observed? 
+
+```{r}
+fits = readRDS("outputs/fits_20230331.rds")
+id_goodfits = !is.na(fits$objective) & fits$objective <1.2
+dgf = d[id_goodfits,] 
+# compare good fits 
+library(ggplot2)
+library(magrittr)
+
+ruu = function(str){ ## remove underscore and upper case for the first letter
+  str = gsub("_", " ", str)
+  paste(toupper(substr(str, 1, 1)), substr(str, 2, nchar(str)), sep="")
+}
+
+strs = c("duration", "threshold", "total_suspected_cases","attack_rate",
+       "population", "time_to_peak..weeks.", "mean_R0")
+
+d2 = d
+d2 = rbind(d2, dgf)
+d2$dataset = as.factor(c(rep("All",nrow(d)), rep("Fit", nrow(dgf))))
+
+library(dplyr)
+for(str in strs){
+    p = ggplot(d2)+
+      geom_histogram(aes(x=eval(parse(text=str)), y=..density.., fill=dataset),
+                     position='identity', alpha=0.4)+
+      scale_fill_manual(values=c("All"="brown", "Fit"="steelblue"), name="")+
+      labs(x=ruu(str), y="Density")+
+      theme_bw()+
+      facet_wrap(~dataset,nrow=2)
+
+  ggsave(paste0("plots/", str, ".png"), p, width=3.4*2, height=2.7*2, unit="in")  
+}
+```
+
+
+```{r}
+d_id_goodfits = d[id_goodfits,]
+plot(1:nrow(d), d[[c("duration")]])
+points(1:nrow(d_id_goodfits), d_id_goodfits[[c("duration")]], col=2)
+
+outbks = readRDS("outputs/fitted_outbreaks_20230330.rds")
+d[id, c("duration", "threshold", "total_suspected_cases","attack_rate",
+       "population", "time_to_peak..weeks.", "mean_R0")]
+
+apply(fits, 2, summary)
+id = match(NA, fits$objective)
+
+d[id,c("duration", "threshold", "total_suspected_cases","attack_rate",
+       "population", "time_to_peak..weeks.", "mean_R0")]
+outbks[[id]]$outbreak_char
+fits[id,]
+final_epidemic_size(R0=d[id,]$mean_R0)
+
+extract_pars = function(dat, id) {
+  char_obs = dat[id, c("duration", "threshold", "total_suspected_cases",
+                    "attack_rate", "population", "time_to_peak..weeks.",
+                    "mean_R0")]
+  
+  if (all(!is.na(char_obs[1,]))) {
+    pars = c(
+      popsize = char_obs[["population"]],
+      threshold = char_obs[["threshold"]],
+      outbk_dur = char_obs[["duration"]],
+      outbk_size = char_obs[["total_suspected_cases"]],
+      outbk_time_to_peak = char_obs[["time_to_peak..weeks."]],
+      outbk_R0 = char_obs[["mean_R0"]])
+  }
+  return(pars)
+}
+  
+pars = extract_pars(d, id)
+# see if increasing R0 would find a reasonable proportion 
+pars[["outbk_R0"]] = 2 
+ft = optimise(cost_func_pars, pars=pars, interval=c(0,1))
+ft$minimum
+ft$objective
+    
+```
+
+Let's exclude those that did not generate good fits (eg, is.na(objective) 
+or objective > cutoff for the cutoff is 
+
+```{r}
+ids_NA = is.na(fits$objective)
+summary(fits$minimum[!ids_NA])
+fits$objective[fits$objective > 1]
+
+        summary(fits)
+fits$minimum[fits$minimum > 0.8]
+d[which(fits$minimum>0.8),]
+fits[which(fits$minimum>0.8),"objective"]
+summary(fits[which(fits$minimum<=0.8),"objective"])
+
+```
+
+
+### Test vaccine impact
+```{r}
+devtools::load_all()
+params <- initialize_params()
+d = data.table::fread("https://raw.githubusercontent.com/kimfinale/cholera_outbreaks_ssa/main/reference_data/outbreak_data.csv")
+fits = readRDS("outputs/fits_20230329.rds")
+i = 1
+char_obs = d[i, c("population","threshold","mean_R0")]
+  
+  if (all(!is.na(char_obs[1,]))) {
+    pars = c(popsize = char_obs[["population"]],
+      threshold = char_obs[["threshold"]],
+      outbk_R0 = char_obs[["mean_R0"]])
+    
+    params$R0 = pars[["outbk_R0"]]
+    outbk = simulate_outbreak(params=params,
+                              saveat=1,
+                              stat_window=7,
+                              popsize = pars[["popsize"]],
+                              outbreak_threshold = pars[["threshold"]],
+                              prop_eff_pop = fits$minimum[i])
+}
+```
+
+## Generate outbreaks in terms of outbreak characteristics
+outbreak size, duration of an outbreak, peak incidence, attack rate.
+
+```{r}
+# read the source data for the Zheng et al. (2022) paper
+d = data.table::fread("https://raw.githubusercontent.com/kimfinale/cholera_outbreaks_ssa/main/reference_data/outbreak_data.csv")
+names(d)
+d[1,c("duration","threshold","total_suspected_cases","attack_rate","population","time_to_peak..weeks.")]
+
+outbk = simulate_outbreak(params=params)
+cost
+d[1,c("duration","threshold","total_suspected_cases","attack_rate","population","time_to_peak..weeks.")]
+
+
+
+pr=c(0.025,0.25,0.5,0.75,0.975)
+summary(d$duration)
+boxplot(d$duration)
+dshort = d[duration < 50]
+summary(dshort$duration)
+boxplot(dshort$duration)
+dvar = d[,c("population","duration","attack_rate",
+            "time_to_peak..weeks.")]
+dvar$logpop = log10(dvar$population) 
+pairs(dvar[,-c("population")])
+library(Hmisc)
+rcorr(as.matrix(dvar[,-c("population")]))
+
+#if I select outbreaks
+```
+
+```{r}
+PARAMETERS$model <- seiarw
+pop <- 1e5
+pop_scale <- 0.07
+prop_init_R <- 0.6
+prop_init_I <- 0.001 
+PARAMETERS$init$R <- prop_init_R * pop * pop_scale
+PARAMETERS$init$I <- prop_init_I * pop * pop_scale
+PARAMETERS$init$S <- pop * pop_scale - PARAMETERS$init$I - PARAMETERS$init$I
+
+parm = PARAMETERS
+out = seiarw(parm)
+# plot(1:nrow(d), d$CI, type="l")
+
+# ?data.table::frollsum
+df <- data.frame(matrix(NA, nrow=52, ncol=10))
+df$week=1:52
+for(i in 1:10){
+  parm <- c(R0=2, R0W=1, case_threshold=10, alpha=(i-1)/10)
+  d <- daily_incidence(pars=parm)
+  weekroll <- data.table::frollsum(d$CI, n=7)
+  sq <- seq(7, length(weekroll), by=7)
+  df[, i] <- weekroll[sq]
+}
+
+head(df, n=20)
+names(df) <- c(paste0(seq(0,90,10)," %"), "Week")
+df <- df[,c(seq(1,9,2),11)]
+library(tidyr)
+# dflong <- pivot_longer(df, cols=1:ncol(df), names_to = "Reduction")
+dflong <- pivot_longer(df, cols=(!Week), names_to = "Reduction")
+library(ggplot2)
+
+
+p <- ggplot(dflong) +
+  geom_line(aes(Week, value, color=Reduction), linewidth=1)+
+  labs(x="Week", y="Case")+
+  scale_color_manual("Intervention", values=mycolors[1:10])+
+  theme_classic()+
+  theme(panel.grid.major = element_line(colour="grey95", linewidth=0.3),
+    text = element_text(size=14), axis.text = element_text(size=14))
+p
+
+ggsave("plots/outbreak_intervention.png", p, width=3.4*2, height=2.7*2, unit="in")
+
+
+
+# sum(d$CI)
+cat("outbreak size:", round(sum(weekly)), "\n")
+# df <- data.frame(week = 1:length(weekly), case = weekly)
+# library(ggplot2)
+# p <- ggplot(df) +
+#   geom_col(aes(week, case), fill = "brown") + 
+#   labs(x="Week", y="Case")+
+#   theme_classic()+
+#   theme(panel.grid.major = element_line(colour="grey95", linewidth=0.3),
+#     text = element_text(size=14),
+#         axis.text = element_text(size=14))
+# p
+# ggsave("plots/typical_outbreak.png", p, width=3.4*2, height=2.7*2, unit="in")
+
+out <- PARAMETERS$model(PARAMETERS)
+day_filter <- seq(1, by=round(1/PARAMETERS$tau), length.out=(PARAMETERS$ndays+1))
+out <- out[day_filter, ]
+
+```
+
+
+## Vaccination campaign
+
+```{r}
+PARAMETERS <- initialize_params()
+# PARAMETERS$model <- seiarw
+pop <- 1e5
+pop_scale <- 0.07
+prop_init_R <- 0.6
+prop_init_I <- 0.001 
+PARAMETERS$init$R <- prop_init_R * pop * pop_scale
+PARAMETERS$init$I <- prop_init_I * pop * pop_scale
+PARAMETERS$init$S <- pop * pop_scale - PARAMETERS$init$I - PARAMETERS$init$I
+
+parm <- c(R0=2, R0W=1, case_threshold=10, alpha=0, vacc_cov=0.4, 
+          vacc_eff_v1 = 0.9, vacc_eff_v2 = 0.9)
+params <- PARAMETERS
+for (n in names(parm)) {
+  params[[n]] <- parm[[n]]
+}
+
+out <- seiarw2(params)
+# out <- params$model(params)
+
+d <- daily_incidence(pars=parm, variable = names(out))
+plot(1:nrow(d), d$CI, type="l")
+```
+
+### Plot
+```{r}
+# ?data.table::frollsum
+df <- data.frame(matrix(NA, nrow=52, ncol=10))
+df$week=1:52
+for(i in 1:10){
+  parm <- c(R0=2, R0W=1, case_threshold=10, alpha=(i-1)/10)
+  d <- daily_incidence(pars=parm)
+  weekroll <- data.table::frollsum(d$CI, n=7)
+  sq <- seq(7, length(weekroll), by=7)
+  df[, i] <- weekroll[sq]
+}
+
+head(df, n=20)
+names(df) <- c(paste0(seq(0,90,10)," %"), "Week")
+df <- df[,c(seq(1,9,2),11)]
+library(tidyr)
+# dflong <- pivot_longer(df, cols=1:ncol(df), names_to = "Reduction")
+dflong <- pivot_longer(df, cols=(!Week), names_to = "Reduction")
+library(ggplot2)
+mycolors <- my_discrete_colors
+
+p <- ggplot(dflong) +
+  geom_line(aes(Week, value, color=Reduction), linewidth=1)+
+  labs(x="Week", y="Case")+
+  scale_color_manual("Intervention", values=mycolors[1:10])+
+  theme_classic()+
+  theme(panel.grid.major = element_line(colour="grey95", linewidth=0.3),
+    text = element_text(size=14), axis.text = element_text(size=14))
+p
+
+ggsave("plots/outbreak_intervention.png", p, width=3.4*2, height=2.7*2, unit="in")
+
+
+
+# sum(d$CI)
+cat("outbreak size:", round(sum(weekly)), "\n")
+# df <- data.frame(week = 1:length(weekly), case = weekly)
+# library(ggplot2)
+# p <- ggplot(df) +
+#   geom_col(aes(week, case), fill = "brown") + 
+#   labs(x="Week", y="Case")+
+#   theme_classic()+
+#   theme(panel.grid.major = element_line(colour="grey95", linewidth=0.3),
+#     text = element_text(size=14),
+#         axis.text = element_text(size=14))
+# p
+# ggsave("plots/typical_outbreak.png", p, width=3.4*2, height=2.7*2, unit="in")
+
+out <- PARAMETERS$model(PARAMETERS)
+day_filter <- seq(1, by=round(1/PARAMETERS$tau), length.out=(PARAMETERS$ndays+1))
+out <- out[day_filter, ]
+
+```
+
+### SEIARW Erlang distributed model
+```{r, echo=FALSE}
+# PARAMETERS <- initialize_params()
+# # PARAMETERS$model <- seiarw
+# pop <- 1e5
+# pop_scale <- 0.07
+# prop_init_R <- 0.6
+# prop_init_I <- 0.001 
+# PARAMETERS$init$R <- prop_init_R * pop * pop_scale
+# PARAMETERS$init$I <- prop_init_I * pop * pop_scale
+# PARAMETERS$init$S <- pop * pop_scale - PARAMETERS$init$I - PARAMETERS$init$I
+# 
+# parm <- c(R0=2, R0W=1, prop_children=0.1)
+# params <- PARAMETERS
+# for (n in names(parm)) {
+#   params[[n]] <- parm[[n]]
+# }
+
+# library(Rcpp)
+# sourceCpp("src/seiarw.cpp")
+# out <- seiarw(params)
+params <- initialize_params()
+pop <- 1e5
+pop_scale <- 1
+prop_init_R <- 0.0
+prop_init_I <- 0.001 
+params$init$R <- prop_init_R * pop * pop_scale
+params$init$I <- prop_init_I * pop * pop_scale
+params$init$S <- pop * pop_scale - params$init$I - params$init$I
+params$vacc_cov <- c(0.0, 0.0)
+params$delay_until_2nd_campaign <- 30
+params$R0 <- 2
+params$R0W <- 0
+params$alpha <- 0
+params$fA <- 0.0
+params$tau <- 0.1
+# out <- seiarw_2ag_erlang(params)
+params$sigma <- 0
+
+out <- run_model(seiarw_2ag_erlang, params, output_time = 7, output_var = c("CI.1","CI.2"))
+
+df = data.frame(ci=out$CI.1 + out$CI.2)
+df$time = seq(0, length.out=nrow(df), by=7)
+
+plot(diff(out$CI.1)+diff(out$CI.2), type="l")             
+sum(tail(out, 1))/pop/(1-params$fA)
+final_epidemic_size(R0=params$R0)
+
+## seiarw model, age-group specific parameters need to be adjusted
+params2 <- params
+params2$vacc_cov <- 0
+params2$vacc_eff_v1 <- 0
+params2$vacc_eff_v2 <- 0
+out2 <- run_model(seiarw, params2, output_time = 7, output_var = c("CI"))
+sum(tail(out2, 1))/pop
+
+# plot(diff(out$CI.1)+diff(out$CI.2), type="l")
+# plot(diff(out2$CI), type="l")
+# head(out)
+# tail(out)
+# plot(out$S.1, type="l")
+# # plot(out$S.2, type="l")
+# # plot(out$I1.1, type="l")
+# plot(out$O1.1, type="l")
+# plot((out$O1.1 + out$O2.1), type="l")
+# plot(out$T2.1, type="l")
+# plot(out$T2.1, type="l")
+# head(out)
+# tail(out)
+```
+
+## 
+surveillance activity?
+```{r}
+# extract outbreak characteristics (outbreak duration, peak incidence)
+out1=out
+out2=out+rnorm(nrow(out))
+
+nsamp = 1
+nfeat = 3
+threshold = 7
+popsize = 1e5
+df = data.frame(matrix(NA, nrow=nsamp, ncol=nfeat))
+names(df) = c("peak_inc","outbreak_dur","attack_rate")
+for(i in 1:nsamp){
+  weekly = diff(out$CI.1)  
+  df[i, "peak_inc"] = max(out$CI.1)
+  over = which(weekly > threshold)
+  df[i, "outbreak_dur"] = out$time[max(over)] - out$time[min(over)]
+  df[i, "attack_rate"] = tail(out$CI.1, 1) / popsize
+}
+df
+
+
+
+```
+
+# Grid search
+See if how the proportion of already-immune people for a given threshold
+```{r}
+params <- initialize_params()
+params$vacc_cov <- c(0.0, 0.0)
+params$delay_until_2nd_campaign <- 30
+params$alpha <- 0
+params$tau <- 0.1
+params$R0 = 2
+params$R0W = 2
+
+outbk = simulate_outbreak(params=params)
+
+run_outbreak = function(params, 
+                        model=seiarw_2ag_erlang,
+                        popsize=1e5,
+                        inc_ref_pop=1e3,
+                        prop_s=1, 
+                        prop_eff_pop=1,
+                        output_var=c("CI.1","CI.2"),
+                        output_time=7,
+                        threshold=1){
+  
+  params$init$R <- (1-prop_s) * popsize * prop_eff_pop
+  params$init$I <- 0.001 * popsize * prop_eff_pop
+  params$init$S <- popsize * prop_eff_pop - params$init$I
+
+  out <- run_model(model, params, 
+                   output_time=output_time,
+                   output_var=output_var)
+  
+  df = data.frame(ci = out$CI.1 + out$CI.2)
+  df$time = out$time / output_time # make it a week
+  
+  weekly = diff(df$ci)
+  over = which(weekly > threshold) # index for the week of which the incid is over the threshold
+  start = df$time[min(over)]
+  end = df$time[max(over)] 
+  peak = df$time[which.max(weekly)]
+  peak_inc_per_1e3 = weekly[peak] / popsize * inc_ref_pop
+  time_to_peak = (peak - start)
+  outbreak_dur = (end - start)
+  outbreak_size = tail(df$ci, 1)   
+  attack_rate_per_1e3 = outbreak_size / popsize * inc_ref_pop   
+  
+  return(c(outbreak_dur=outbreak_dur, 
+           time_to_peak=time_to_peak,
+           peak_inc_per_1e3=peak_inc_per_1e3, 
+           outbreak_size=outbreak_size,
+           attack_rate_per_1e3=attack_rate_per_1e3))
+}
+
+res = run_outbreak(params=params)
+
+get_outbreak_char = function(df, threshold=1, popsize=1e5,
+                                        inc_ref_pop=1e3){
+  weekly = diff(df$ci)
+  over = which(weekly > threshold)
+  start = df$time[min(over)]
+  end = df$time[max(over)] 
+  peak = df$time[which.max(weekly)]
+  peak_inc_per_1e3 = weekly[peak] / popsize * inc_ref_pop
+  time_to_peak = (peak - start)
+  outbreak_dur = (end - start)
+  outbreak_size = tail(df$ci, 1)   
+  attack_rate_per_1e3 = outbreak_size / popsize * inc_ref_pop   
+  
+  return(c(outbreak_dur=outbreak_dur, time_to_peak=time_to_peak,
+              peak_inc_per_1e3=peak_inc_per_1e3, 
+              outbreak_size = outbreak_size,
+              attack_rate_per_1e3=attack_rate_per_1e3))
+}
+
+out <- run_model_with_varying_S(prop_s=0.3)
+plot(out$time, c(0,diff(out$ci)), type="b")
+get_outbreak_char(df=out)
+
+
+plot(out$time, c(0,diff(out$ci)), type="b")
+cnt <- 1
+my_discrete_colors[1:9]
+for(i in seq(0.1,0.9,0.1)){
+  
+  out <- run_model_with_varying_S(params=params,prop_s=1-i)
+  lines(out$time, c(0,diff(out$ci)), col=my_discrete_colors[cnt], lwd=2)
+ 
+  res = get_outbreak_char(df=out, threshold=7, popsize=1e5)
+  cat("dur=", res$outbreak_dur, ", size=", res$outbreak_size, ", time_to_peak=", res$time_to_peak, ", peak_inc=", 
+      res$peak_inc_per_1e3, ", ar=", res$attack_rate_per_1e3, "\n")
+  cnt = cnt + 1
+}
+```
+
+### EpiEstim
+
+```{r}
+params <- initialize_params()
+params$vacc_cov <- c(0.0, 0.0)
+params$delay_until_2nd_campaign <- 30
+params$alpha <- 0
+params$tau <- 0.01
+params$R0W = 0
+params$prop_children <- 0
+params$fA = 0
+params$sigma = 0 # or immunity waning
+params$R0=2
+
+out=simulate_outbreak(params=params,
+                      prop_s=1,
+                      output_time=1)
+
+library(EpiEstim)
+day_incid = diff(out$timeseries$ci)
+t_start <- seq(2, length(day_incid)-1)   
+t_end <- t_start + 1                 
+res <- estimate_R(incid = day_incid, 
+                  method = "parametric_si",
+                  config = make_config(list(
+                  mean_si = 4.5,
+                  std_si = 3, 
+                  t_start = t_start, 
+                  t_end = t_end)))
+res$R$`Mean(R)`[1:20]
+
+plot(res$R$`Mean(R)`[1:50])
+```
+
+
+## Grid search
+```{r}
+params <- initialize_params()
+params$vacc_cov <- c(0.0, 0.0)
+params$delay_until_2nd_campaign <- 30
+params$alpha <- 0
+params$tau <- 0.1
+params$R0 <- 2
+params$R0W <- 0
+# first few columns are parameters varied
+res = expand.grid(prop_s=seq(0.1,1.0,0.1), 
+                  threshold=1,
+                  eff_pop_prop=seq(0.1,0.9,0.1))
+
+res$outbreak_dur = NA
+res$outbreak_size = NA
+res$time_to_peak = NA
+res$peak_inc_per_1e3 = NA
+res$attack_rate_per_1e3 = NA
+res$prop_peak_inc = NA
+
+output = vector("list", nrow(res))
+
+for(i in 1:nrow(res)){
+  cat("i =", i, "\n")
+  out <- simulate_outbreak(params=params, 
+                           prop_s=res$prop_s[i],
+                           prop_eff_pop=res$eff_pop_prop[i])
+  
+  output[[i]] = out
+  res[i, "outbreak_dur"] = out$outbreak_char[["outbreak_dur"]]
+  res[i, "outbreak_size"] = out$outbreak_char[["outbreak_size"]]
+  res[i, "time_to_peak"] = out$outbreak_char[["time_to_peak"]]
+  res[i, "peak_inc_per_1e3"] = out$outbreak_char[["peak_inc_per_1e3"]]
+  res[i, "attack_rate_per_1e3"] = out$outbreak_char[["attack_rate_per_1e3"]] 
+  res[i, "prop_peak_inc"] = out$outbreak_char[["prop_peak_inc"]]
+
+}
+
+```
+
+### $R_t = R_0 S$ during the initial period
+
+$R_t$ measured over the initial period of an outbreak through the use of EpiEstim package gives $R_0 S$ where $S$ is the fraction of susceptibles rather than $R_0$. For an endemic disease like cholera, $S$ can be lower than 1 and therefore, $R_t$ during the initial phase of a cholera outbreak can lead to an underestimate of $R_0$. See the code block below to check if the incidence is the same regardless of $R_0$ as long as the $R_0 S$ remains constant. This implies that given the value of initial Rt we can choose different combinations of $R_0$ and $S$. Instead, we assumed that $R_t=R_0$ and assumed $S=1$. Then, we explored the varying size of the population (i.e., S) that produced the observed characteristics of the outbreak.
+
+```{r}
+R0S = 4
+parm <- initialize_params()
+parm$vacc_cov <- c(0.0, 0.0)
+parm$delay_until_2nd_campaign <- 30
+parm$alpha <- 0
+parm$tau <- 0.1
+parm$R0 <- 2
+parm$R0W <- 0
+prop_s <- R0S/parm$R0 
+
+out = simulate_outbreak(params=parm, prop_s=prop_s, output_time=1)
+head(out$timeseries, n=10)
+
+
+# parm2 <- initialize_params()
+# parm2$vacc_cov <- c(0.0, 0.0)
+# parm2$delay_until_2nd_campaign <- 30
+# parm2$alpha <- 0
+# parm2$tau <- 0.1
+parm2 <- parm
+parm2$R0 <- 4
+# parm2$R0W <- 0
+prop_s = R0S/parm2$R0
+
+out2 = simulate_outbreak(params=parm2, prop_s=prop_s, output_time=1)
+head(out2$timeseries, n=20)
+
+df=data.frame(ci1=out$timeseries$ci, ci2=out$timeseries$ci)
+df$diff <- df$ci1 - df$ci2
+summary(df$diff)
+```
+
