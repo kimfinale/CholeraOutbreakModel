@@ -1,0 +1,62 @@
+---
+title: "Descriptive analysis of cholera outbreaks in SSA"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+## Outbreak characteristics
+
+```{r}
+library(data.table)
+d = fread("https://raw.githubusercontent.com/kimfinale/cholera_outbreaks_ssa/main/reference_data/outbreak_data.csv")
+
+unique(d$pop_cat)
+cat = c("Population <10,000", "Population <100,000", "Population <1,000,000", "Population >1,000,000")
+
+ar = lapply(cat, function(x) d[d$pop_cat==x,]$attack_rate)
+len = sapply(ar, length)
+df = data.frame(attack_rate=do.call('c',ar), pop_size=rep(cat,len))
+
+#
+summary(df$attack_rate)
+hist(df$attack_rate)
+library(ggplot2)
+library(tidyverse)
+df %>% 
+  ggplot()+
+  geom_histogram(aes(attack_rate,y=..density..))
+
+df %>% 
+  ggplot()+
+  geom_boxplot(aes(attack_rate))+
+  scale_x_continuous(trans='log10')
+
+summary(df$attack_rate)
+
+quantile(df$attack_rate, probs=c(0.025,0.25,0.5,0.75,0.975))
+
+
+library(ggplot2)
+ggplot(df)+
+  geom_histogram(aes(x=attack_rate,y=..density..))+
+  scale_x_binned(limits=c(0,50))+
+  facet_wrap(~pop_size)+
+  theme_bw()
+  
+dens = density(ar[[1]])
+df2 = data.frame(x=dens$x, y=dens$y, pop_size=cat[1])
+for (i in 2:4) {
+  dens = density(ar[[i]])
+  df2 = rbind(df2, data.frame(x=dens$x, y=dens$y, pop_size=cat[i]))
+}
+
+ggplot(df2, aes(x=x, ymin=0, ymax=y, fill=pop_size))+
+  geom_ribbon(alpha=0.5)+
+  scale_x_continuous(limits=c(0,50))+
+  facet_wrap(~pop_size)+
+  theme_bw()
+
+
+```
+
