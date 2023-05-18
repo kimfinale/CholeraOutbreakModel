@@ -1047,7 +1047,7 @@ m = rowSums(inc$inc) # also makes inc$inc into a vector
 (negloglik(pars=parm, pars_baseline=PARAMS, obs=OBS))
 
 tot = length(m)
-plot(1:tot, m, type="l", ylim=c(0,max(m,OBS)))
+plot(1:tot, m, type="l", ylim=c(0,max(m,OBS)), main=x$location[1])
 points((tot-length(OBS)+1):tot, OBS, col=2)
 ```
 

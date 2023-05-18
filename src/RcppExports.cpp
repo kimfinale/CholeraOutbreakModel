@@ -10,19 +10,6 @@ Rcpp::Rostream<true>&  Rcpp::Rcout = Rcpp::Rcpp_cout_get();
 Rcpp::Rostream<false>& Rcpp::Rcerr = Rcpp::Rcpp_cerr_get();
 #endif
 
-// reulermultinom
-NumericVector reulermultinom(double size, NumericVector rate, double dt);
-RcppExport SEXP _CholeraOutbreakModel_reulermultinom(SEXP sizeSEXP, SEXP rateSEXP, SEXP dtSEXP) {
-BEGIN_RCPP
-    Rcpp::RObject rcpp_result_gen;
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< double >::type size(sizeSEXP);
-    Rcpp::traits::input_parameter< NumericVector >::type rate(rateSEXP);
-    Rcpp::traits::input_parameter< double >::type dt(dtSEXP);
-    rcpp_result_gen = Rcpp::wrap(reulermultinom(size, rate, dt));
-    return rcpp_result_gen;
-END_RCPP
-}
 // seiarw
 List seiarw(List params);
 RcppExport SEXP _CholeraOutbreakModel_seiarw(SEXP paramsSEXP) {
@@ -34,22 +21,21 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
-// seiarw_2ag
-List seiarw_2ag(List params);
-RcppExport SEXP _CholeraOutbreakModel_seiarw_2ag(SEXP paramsSEXP) {
+// seiarw_2ag_erlang
+List seiarw_2ag_erlang(List params);
+RcppExport SEXP _CholeraOutbreakModel_seiarw_2ag_erlang(SEXP paramsSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< List >::type params(paramsSEXP);
-    rcpp_result_gen = Rcpp::wrap(seiarw_2ag(params));
+    rcpp_result_gen = Rcpp::wrap(seiarw_2ag_erlang(params));
     return rcpp_result_gen;
 END_RCPP
 }
 
 static const R_CallMethodDef CallEntries[] = {
-    {"_CholeraOutbreakModel_reulermultinom", (DL_FUNC) &_CholeraOutbreakModel_reulermultinom, 3},
     {"_CholeraOutbreakModel_seiarw", (DL_FUNC) &_CholeraOutbreakModel_seiarw, 1},
-    {"_CholeraOutbreakModel_seiarw_2ag", (DL_FUNC) &_CholeraOutbreakModel_seiarw_2ag, 1},
+    {"_CholeraOutbreakModel_seiarw_2ag_erlang", (DL_FUNC) &_CholeraOutbreakModel_seiarw_2ag_erlang, 1},
     {NULL, NULL, 0}
 };
 
