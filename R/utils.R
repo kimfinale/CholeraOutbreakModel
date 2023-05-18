@@ -17,6 +17,22 @@ print_params <- function(params){
   }
 }
 
+expit <- function(x) 1/(1+exp(-x))
+logit <- function(x) {
+  if(x>=1 | x<=0){
+    stop("The function can take the numbers between 0 and 1 with both exclusive")
+  }
+  log(x/(1-x))
+}
+
+get_output_days <- function(x) {
+  unitdays = gsub("^([0-9]+).*", "\\1", x$date_range)
+  l = length(unique(unitdays))
+  if (l != 1){
+    stop("Output days have more than one kind")
+  }
+  return(as.double(unique(unitdays)))
+}
 #
 my_discrete_colors <-
   c("dodgerblue2", "#E31A1C", "green4", "#6A3D9A",

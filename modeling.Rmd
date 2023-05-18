@@ -35,7 +35,7 @@ outbk$outbreak_char
 # all.equal(out, out2)
 ```
 
-### Generate outbreaks based on the 
+### Generate outbreaks
 ```{r}
 # read the source data for the Zheng et al. (2022) paper
 d = data.table::fread("https://raw.githubusercontent.com/kimfinale/cholera_outbreaks_ssa/main/reference_data/outbreak_data.csv")
@@ -150,7 +150,7 @@ for (i in 1:nrow(d)) {
                               prop_eff_pop = fits$minimum[i])
   }
 }
-saveRDS(outbks, paste0("outputs/fitted_outbreaks_", tstamp(), ".rds")) 
+# saveRDS(outbks, paste0("outputs/fitted_outbreaks_", tstamp(), ".rds")) 
 ```
 
 
@@ -241,8 +241,7 @@ ft$objective
     
 ```
 
-Let's exclude those that did not generate good fits (eg, is.na(objective) 
-or objective > cutoff for the cutoff is 
+Let's exclude those that did not generate good fits (eg, is.na(objective) or objective > cutoff for the cutoff is 
 
 ```{r}
 ids_NA = is.na(fits$objective)
@@ -764,5 +763,291 @@ head(out2$timeseries, n=20)
 df=data.frame(ci1=out$timeseries$ci, ci2=out$timeseries$ci)
 df$diff <- df$ci1 - df$ci2
 summary(df$diff)
+```
+
+### Time series data
+```{r}
+devtools::load_all()
+
+dat_ts = readRDS("inst/extdata/outbreak_data_ts.rds")
+dat_long = data.table::fread("inst/extdata/ocv_long_dataset.csv")
+# outbreaks without OCV campaign
+outbks_no_ocv = dat_long[OCV_before_1 == FALSE & OCV_before_2 == FALSE &
+                              OCV_before_3 == FALSE & OCV_during == FALSE]
+table(outbks_no_ocv$OCV_after_1) 
+ids_outbks_no_ocv = unique(outbks_no_ocv$ID_outbreak)
+# to record impressions of the oubreak ts after visualizing
+data.table::fwrite(data.frame(outbreak_id = ids_outbks_no_ocv), "outputs/outbreak_no_ocv.csv")
+library(ggplot2)
+for (i in 1:length(ids_outbks_no_ocv)) {
+  x = dat_ts[dat_ts$ID_outbreak == ids_outbks_no_ocv[i],]
+  p <- ggplot(data=x)+
+    geom_point(aes(x=TL, y=sCh))+
+    labs(x="", y="Suspected cases", title=ids_outbks_no_ocv[i])+
+    scale_x_date(date_breaks="1 week", date_labels="%d %b",
+               limits=c(min(x$TL), max(x$TL)))+
+    theme(axis.text.x=element_text(angle=60, hjust=1))
+    
+  ggsave(paste0("plots/ts_", i, ".png"), plot=p)
+   
+  # png(filename = paste0("plots/ts_", i, ".png"))
+  # plot(x$TL, x$sCh, main = ids_outbks_no_ocv[i])
+  # axis(1, x$TL, format(x$TL, "%b %d"), cex.axis = .7)
+  # dev.off()
+}
+```
+
+### Fit
+Parameter fitting
+Population size is assumed to be the same as the 
+Parameters to vary
+1. time of the outbreak start 
+2. reproduction number
+2. proportion of the population that is susceptible to infection
+4. reporting rate, which determines the proportion of the symptomatic cases
+(I in the SEIRW model) observed during the outbreak
+5. dispersion parameter of the negative binomial distribution (optional)
+
+"time of outbreak start" is an integer. Optimization algorithm is usually
+designed to work with continuous variable and doesn't work well for the mixed (discrete and continuous) programming case. I therefore chose a priori the
+range of plausible range of values for the introduction (1-35 days) and took the brute force parameter estimation.
+
+
+```{r}
+devtools::load_all()
+dat = data.table::fread("https://raw.githubusercontent.com/kimfinale/cholera_outbreaks_ssa/main/reference_data/outbreak_data.csv")
+dat_ts = readRDS("inst/extdata/outbreak_data_ts.rds")
+dat_long = data.table::fread("inst/extdata/ocv_long_dataset.csv")
+outbks_no_ocv = dat_long[OCV_before_1 == FALSE & OCV_before_2 == FALSE &
+                              OCV_before_3 == FALSE & OCV_during == FALSE]
+ids_outbks_no_ocv = unique(outbks_no_ocv$ID_outbreak)
+i = 1
+id <- ids_outbks_no_ocv[i]
+pop = dat[location == gsub("[0-9+]|-", "", id), population]
+x = dat_ts[dat_ts$ID_outbreak == id,]
+
+plot(x$TL, x$sCh, main = id, xlab="", ylab="Suspected cases")
+
+
+(obs_len = sum(as.double(gsub(".*?([0-9]+).*", "\\1", x$date_range))))
+params = initialize_params(Population=pop, obs_length = obs_len)
+
+parm = c(day1 = 14, prop_immune=0.2, R0=3, reporting_rate=0.1)
+inc = incidence(pars = parm, pars_baseline = params)
+
+negloglik(pars=parm, pars_baseline=params, obs=x$sCh)
+```
+
+### Optim
+```{r}
+NLL <- function(pi=0.1,r0=3,pr=0.2,pep=0.1) {
+  parm = c(day1=day1,
+           prop_immune=expit(pi),
+           R0=(exp(r0)+1), 
+           prop_report=expit(pr),
+           prop_eff_pop=expit(pep))
+  
+  nll = negloglik(pars=parm, pars_baseline=PARAMS, obs=x$sCh)
+
+  return(nll)
+}
+
+library(bbmle)
+fit1 <- mle2(minuslogl=NLL, method="L-BFGS-B", start=c(pi=logit(0.2),r0=log(5),pr=logit(0.4),pep=logit(0.1)))
+summary(fit1)
+expit(coef(fit1)[c(1,3,4)])
+exp(coef(fit1)[c(2)])+1
+
+# fit2 <- mle2(NLL, optimizer="nlminb", lower=c(pi=1e-6,r0=1.01,pr=1e-6), upper=c(pi=0.99,r0=20,rr=0.99)))
+fit2 <- mle2(NLL, optimizer="nlminb", start=c(pi=logit(0.2),r0=log(5),pr=logit(0.4),pep=logit(0.1)))
+# 
+summary(fit2)
+
+#differential evolution
+parm = c(Day1=14, prop_immune=0.2, R0=5, prop_report=0.2)
+```
+
+
+### Differential evolution
+```{r}
+devtools::load_all()
+dat = data.table::fread("https://raw.githubusercontent.com/kimfinale/cholera_outbreaks_ssa/main/reference_data/outbreak_data.csv")
+dat_ts = readRDS("inst/extdata/outbreak_data_ts.rds")
+dat_long = data.table::fread("inst/extdata/ocv_long_dataset.csv")
+outbks_no_ocv = dat_long[OCV_before_1 == FALSE & OCV_before_2 == FALSE &
+                              OCV_before_3 == FALSE & OCV_during == FALSE]
+ids_outbks_no_ocv = unique(outbks_no_ocv$ID_outbreak)
+i = 1
+id <- ids_outbks_no_ocv[i]
+pop = dat[location == gsub("[0-9+]|-", "", id), population]
+x = dat_ts[dat_ts$ID_outbreak == id,]
+obs_len = nrow(x)
+
+# get_output_days <- function(x) { 
+#   unitdays = gsub("^([0-9]+).*", "\\1", x$date_range)
+#   l = length(unique(unitdays))
+#   if (l != 1){
+#     stop("Output days have more than one kind")
+#   }
+#   return(as.double(unique(unitdays)))
+# }
+output_day = get_output_days(x)
+
+# (obs_len = sum(as.double(gsub("^([0-9]+).*", "\\1", x$date_range))))
+
+
+OBS <- x$sCh
+PARAMS <- initialize_params(population=pop, 
+                            obs_length=obs_len,
+                            output_days=output_day,
+                            output_state="CI")
+
+# day1 = 14
+# 
+# parm = c(day1=4, prop_immune=0.2, R0=3, prop_report=0.1, prop_eff_pop=0.2)
+
+NLL <- function(parm, fixed) {
+  # just in case parm already has names, which appears to mess up 
+  parm = c(day1=fixed[[1]],
+           prop_immune=parm[[1]],
+           R0=parm[[2]],
+           prop_report=parm[[3]],
+           prop_eff_pop=parm[[4]])
+  
+  nll = negloglik(pars=parm, pars_baseline=PARAMS, obs=OBS)
+
+  return(nll)
+}
+
+library(RcppDE)
+
+fitlist <- vector('list', length=20)
+id <- 1
+for (i in 21:40) {
+
+  day1 = i
+  cat("day 1 =", day1, "\n")
+  
+  fit <- DEoptim(fn=NLL, 
+                 lower=c(1e-6, 1.01, 1e-6, 1e-6), 
+                 upper=c(0.99, 30,   0.99, 0.99),
+                 control=DEoptim.control(NP=200, itermax=200, trace=FALSE), 
+                 fixed=i)
+  
+  fitlist[[id]] <- fit
+  id <- id + 1
+  
+  (p = fit$optim$bestmem)
+  #      par1      par2      par3      par4 
+  # 0.7283755 3.5943194 0.0318457 0.2340129 
+  parm = c(day1=day1,
+           prop_immune=p[[1]],
+           R0=p[[2]], 
+           prop_report=p[[3]],
+           prop_eff_pop=p[[4]])
+  
+  inc = incidence(pars=parm, pars_baseline=PARAMS)
+  inc$param
+  m = rowSums(inc$inc)
+  
+  tot = length(m)
+  plot(1:tot, m, type="l")
+  points((tot-length(OBS)+1):tot, OBS, col=2)
+}
+
+lapply(fitlist, function(x) x$optim$bestmem)
+```
+
+### DEoptim::DEoptim 
+1. fnMap option for integer programming
+2. parallel 
+
+```{r}
+library(CholeraOutbreakModel)
+dat = data.table::fread("https://raw.githubusercontent.com/kimfinale/cholera_outbreaks_ssa/main/reference_data/outbreak_data.csv")
+dat_ts = readRDS("inst/extdata/outbreak_data_ts.rds")
+dat_long = data.table::fread("inst/extdata/ocv_long_dataset.csv")
+outbks_no_ocv = dat_long[OCV_before_1 == FALSE & OCV_before_2 == FALSE &
+                              OCV_before_3 == FALSE & OCV_during == FALSE]
+ids_outbks_no_ocv = unique(outbks_no_ocv$ID_outbreak)
+i = 1
+id <- ids_outbks_no_ocv[i]
+pop = dat[location == gsub("[0-9+]|-", "", id), population]
+x = dat_ts[dat_ts$ID_outbreak == id,]
+obs_len = nrow(x)
+output_day = get_output_days(x)
+
+# Variables to be passed to nodes
+OBS <- x$sCh
+PARAMS <- initialize_params(population=pop, 
+                            obs_length=obs_len,
+                            output_days=output_day,
+                            output_state="CI")
+
+mapfun <- function(x){
+  x[5] <- round(x[5])
+  
+  return(x)
+}
+
+NLL <- function(parm) {
+  # just in case parm already has names, which appears to mess up 
+  parm = c(day1=parm[[5]],
+           prop_immune=parm[[1]],
+           R0=parm[[2]],
+           prop_report=parm[[3]],
+           prop_eff_pop=parm[[4]])
+  
+  nll = negloglik(pars=parm, pars_baseline=PARAMS, obs=OBS)
+
+  return(nll)
+}
+
+# # single 
+# tic <- Sys.time()
+# opt <- 
+#   DEoptim::DEoptim(NLL,
+#                    lower=c(1e-6, 1.01, 1e-6, 1e-6, 1), 
+#                    upper=c(0.99, 30,   0.99, 0.99, 100),
+#                    control=DEoptim.control(NP=200, itermax=200, trace=FALSE),
+#                    fnMap=mapfun)
+# 
+# Sys.time() - tic
+
+# parallel
+library(DEoptim)
+set.seed(42)
+tic <- Sys.time()
+opt <- 
+  DEoptim::DEoptim(NLL,
+                   lower=c(1e-6, 1.01, 1e-6, 1e-6, 1), 
+                   upper=c(0.99, 30,   0.99, 0.99, 100),
+                   control=DEoptim.control(NP=1000, itermax=1000,
+                                           trace=FALSE,
+                                           parallelType=1,
+                                           parVar=c("PARAMS","OBS"), 
+                                           packages=c("CholeraOutbreakModel")),
+                   fnMap=mapfun)
+
+Sys.time() - tic
+
+(p = opt$optim$bestmem)
+       # par1        par2        par3        par4        par5 
+ # 0.45483295  2.96483051  0.04335388  0.68805395 38.00000000 
+parm = c(day1=p[[5]],
+         prop_immune=p[[1]],
+         R0=p[[2]], 
+         prop_report=p[[3]],
+         prop_eff_pop=p[[4]])
+
+inc = incidence(pars=parm, pars_baseline=PARAMS)
+inc$param
+m = rowSums(inc$inc) # also makes inc$inc into a vector
+
+(negloglik(pars=parm, pars_baseline=PARAMS, obs=OBS))
+
+tot = length(m)
+plot(1:tot, m, type="l", ylim=c(0,max(m,OBS)))
+points((tot-length(OBS)+1):tot, OBS, col=2)
 ```
 
